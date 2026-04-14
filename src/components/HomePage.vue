@@ -3,12 +3,13 @@ import { ref, computed, onMounted } from 'vue'
 import TypingTest from './TypingTest.vue'
 import KeyPractice from './KeyPractice.vue'
 import History from './History.vue'
+import Leaderboard from './Leaderboard.vue'
 import { useStorage } from '../composables/useStorage'
 import { getArticlesByLanguage, type Article } from '../data/articles'
 
 type TypingMode = 'english' | 'chinese' | 'competition'
 type TestType = 'practice' | 'competition'
-type ViewMode = 'home' | 'test' | 'result' | 'history' | 'keyPractice'
+type ViewMode = 'home' | 'test' | 'result' | 'history' | 'keyPractice' | 'leaderboard'
 type Theme = 'default' | 'kids'
 
 const storage = useStorage()
@@ -90,6 +91,10 @@ function viewHistory() {
   currentView.value = 'history'
 }
 
+function viewLeaderboard() {
+  currentView.value = 'leaderboard'
+}
+
 function goToTest() {
   currentView.value = 'test'
 }
@@ -107,6 +112,7 @@ function goToKeyPractice() {
         <nav class="nav">
           <span class="username-display" v-if="username">{{ username }}</span>
           <button class="btn btn-secondary" @click="goToKeyPractice" v-if="currentView === 'home'">键位练习</button>
+          <button class="btn btn-secondary" @click="viewLeaderboard" v-if="currentView === 'home'">排行榜</button>
           <button class="btn btn-secondary" @click="viewHistory" v-if="currentView === 'home'">历史记录</button>
           <button class="btn btn-secondary" @click="goHome" v-if="currentView !== 'home'">返回首页</button>
           <button class="btn btn-secondary icon-btn" @click="toggleTheme" :title="currentTheme === 'default' ? '儿童风格' : '默认风格'">
@@ -269,6 +275,13 @@ function goToKeyPractice() {
         v-if="currentView === 'history'"
         :username="username"
         @back="goHome"
+      />
+
+      <!-- 排行榜 -->
+      <Leaderboard
+        v-if="currentView === 'leaderboard'"
+        language="all"
+        :limit="10"
       />
     </main>
 
