@@ -79,6 +79,7 @@ export function useStorage() {
     darkMode: boolean
     showTrail: boolean
     continueLast: boolean
+    theme?: 'default' | 'kids'
   } {
     try {
       const data = localStorage.getItem(SETTINGS_KEY)
@@ -101,6 +102,7 @@ export function useStorage() {
     darkMode: boolean
     showTrail: boolean
     continueLast: boolean
+    theme?: 'default' | 'kids'
   }) {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings))
   }

@@ -1,22 +1,26 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import TypingTest from './TypingTest.vue'
+import KeyPractice from './KeyPractice.vue'
 import History from './History.vue'
 import { useStorage } from '../composables/useStorage'
 import { getArticlesByLanguage, type Article } from '../data/articles'
 
 type TypingMode = 'english' | 'chinese' | 'competition'
 type TestType = 'practice' | 'competition'
+type ViewMode = 'home' | 'test' | 'result' | 'history' | 'keyPractice'
+type Theme = 'default' | 'kids'
 
 const storage = useStorage()
 
-const currentView = ref<'home' | 'test' | 'result' | 'history'>('home')
+const currentView = ref<ViewMode>('home')
 const username = ref('')
 const typingMode = ref<TypingMode>('english')
 const testType = ref<TestType>('practice')
 const selectedArticle = ref<Article | null>(null)
 const testDuration = ref(1)
 const lastResult = ref<any>(null)
+const currentTheme = ref<Theme>('default')
 const settings = ref({
   fontSize: 'normal' as 'normal' | 'large',
   darkMode: false,
@@ -37,11 +41,15 @@ onMounted(() => {
   const savedSettings = storage.getSettings()
   settings.value = { ...settings.value, ...savedSettings }
   username.value = storage.getUsername() || ''
+  currentTheme.value = savedSettings.theme || 'default'
 
-  if (savedSettings.darkMode) {
-    document.documentElement.setAttribute('data-theme', 'dark')
-  }
+  applyTheme()
 })
+
+function applyTheme() {
+  document.documentElement.setAttribute('data-theme', settings.value.darkMode ? 'dark' : 'light')
+  document.documentElement.setAttribute('data-style', currentTheme.value)
+}
 
 function startTest() {
   if (!username.value.trim()) {
@@ -57,10 +65,21 @@ function handleTestComplete(result: any) {
   currentView.value = 'result'
 }
 
+function handleKeyPracticeComplete(result: any) {
+  lastResult.value = result
+  currentView.value = 'result'
+}
+
 function toggleDarkMode() {
   settings.value.darkMode = !settings.value.darkMode
-  document.documentElement.setAttribute('data-theme', settings.value.darkMode ? 'dark' : 'light')
+  applyTheme()
   storage.saveSettings(settings.value)
+}
+
+function toggleTheme() {
+  currentTheme.value = currentTheme.value === 'default' ? 'kids' : 'default'
+  applyTheme()
+  storage.saveSettings({ ...settings.value, theme: currentTheme.value })
 }
 
 function goHome() {
@@ -74,6 +93,10 @@ function viewHistory() {
 function goToTest() {
   currentView.value = 'test'
 }
+
+function goToKeyPractice() {
+  currentView.value = 'keyPractice'
+}
 </script>
 
 <template>
@@ -83,8 +106,12 @@ function goToTest() {
         <h1 class="logo" @click="goHome">打字测试</h1>
         <nav class="nav">
           <span class="username-display" v-if="username">{{ username }}</span>
+          <button class="btn btn-secondary" @click="goToKeyPractice" v-if="currentView === 'home'">键位练习</button>
           <button class="btn btn-secondary" @click="viewHistory" v-if="currentView === 'home'">历史记录</button>
           <button class="btn btn-secondary" @click="goHome" v-if="currentView !== 'home'">返回首页</button>
+          <button class="btn btn-secondary icon-btn" @click="toggleTheme" :title="currentTheme === 'default' ? '儿童风格' : '默认风格'">
+            {{ currentTheme === 'default' ? '🎨' : '🎀' }}
+          </button>
           <button class="btn btn-secondary icon-btn" @click="toggleDarkMode">
             {{ settings.darkMode ? '☀️' : '🌙' }}
           </button>
@@ -190,6 +217,13 @@ function goToTest() {
         :font-size="settings.fontSize"
         :show-trail="settings.showTrail"
         @complete="handleTestComplete"
+        @back="goHome"
+      />
+
+      <!-- 键位练习 -->
+      <KeyPractice
+        v-if="currentView === 'keyPractice'"
+        @complete="handleKeyPracticeComplete"
         @back="goHome"
       />
 
