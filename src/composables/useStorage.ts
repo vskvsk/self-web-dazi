@@ -1,4 +1,5 @@
 import { ref } from 'vue'
+import type { Article } from '../data/articles'
 
 export interface TypingRecord {
   id: string
@@ -17,6 +18,7 @@ export interface TypingRecord {
 const STORAGE_KEY = 'typing-test-records'
 const USERNAME_KEY = 'typing-test-username'
 const SETTINGS_KEY = 'typing-test-settings'
+const CUSTOM_ARTICLES_KEY = 'typing-test-custom-articles'
 
 export function useStorage() {
   const records = ref<TypingRecord[]>([])
@@ -107,6 +109,35 @@ export function useStorage() {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings))
   }
 
+  function getCustomArticles(): Article[] {
+    try {
+      const data = localStorage.getItem(CUSTOM_ARTICLES_KEY)
+      if (data) {
+        return JSON.parse(data)
+      }
+    } catch (error) {
+      console.error('Failed to load custom articles:', error)
+    }
+    return []
+  }
+
+  function saveCustomArticle(article: Omit<Article, 'id'>): Article {
+    const customArticles = getCustomArticles()
+    const newArticle: Article = {
+      ...article,
+      id: 'custom-' + Date.now().toString(36)
+    }
+    customArticles.push(newArticle)
+    localStorage.setItem(CUSTOM_ARTICLES_KEY, JSON.stringify(customArticles))
+    return newArticle
+  }
+
+  function deleteCustomArticle(id: string) {
+    const customArticles = getCustomArticles()
+    const filtered = customArticles.filter(a => a.id !== id)
+    localStorage.setItem(CUSTOM_ARTICLES_KEY, JSON.stringify(filtered))
+  }
+
   loadRecords()
 
   return {
@@ -119,6 +150,9 @@ export function useStorage() {
     getUsername,
     setUsername,
     getSettings,
-    saveSettings
+    saveSettings,
+    getCustomArticles,
+    saveCustomArticle,
+    deleteCustomArticle
   }
 }

@@ -4,8 +4,9 @@ import TypingTest from './TypingTest.vue'
 import KeyPractice from './KeyPractice.vue'
 import History from './History.vue'
 import Leaderboard from './Leaderboard.vue'
+import CustomArticles from './CustomArticles.vue'
 import { useStorage } from '../composables/useStorage'
-import { getArticlesByLanguage, type Article } from '../data/articles'
+import { getArticlesByLanguageWithCustom, type Article } from '../data/articles'
 
 type TypingMode = 'english' | 'chinese' | 'competition'
 type TestType = 'practice' | 'competition'
@@ -28,8 +29,10 @@ const settings = ref({
   showTrail: false,
   continueLast: false
 })
+const customArticles = ref<Article[]>([])
 
-const articles = computed(() => getArticlesByLanguage(typingMode.value === 'competition' ? 'en' : (typingMode.value === 'english' ? 'en' : 'zh')))
+const currentLanguage = computed(() => typingMode.value === 'competition' ? 'en' : (typingMode.value === 'english' ? 'en' : 'zh'))
+const articles = computed(() => getArticlesByLanguageWithCustom(currentLanguage.value, customArticles.value))
 const currentArticle = computed(() => selectedArticle.value || articles.value[0])
 
 const languageMap: Record<TypingMode, 'en' | 'zh'> = {
@@ -43,6 +46,7 @@ onMounted(() => {
   settings.value = { ...settings.value, ...savedSettings }
   username.value = storage.getUsername() || ''
   currentTheme.value = savedSettings.theme || 'default'
+  customArticles.value = storage.getCustomArticles()
 
   applyTheme()
 })
@@ -101,6 +105,10 @@ function goToTest() {
 
 function goToKeyPractice() {
   currentView.value = 'keyPractice'
+}
+
+function handleCustomArticleSelect(article: Article) {
+  selectedArticle.value = article
 }
 </script>
 
@@ -176,10 +184,14 @@ function goToKeyPractice() {
             <select v-model="selectedArticle">
               <option :value="null">随机文章</option>
               <option v-for="article in articles" :key="article.id" :value="article">
-                {{ article.title }} ({{ article.difficulty }})
+                {{ article.title }} ({{ article.difficulty === 'easy' ? '简单' : article.difficulty === 'medium' ? '中等' : '困难' }})
               </option>
             </select>
           </div>
+
+          <CustomArticles
+            @select="handleCustomArticleSelect"
+          />
 
           <div class="form-group">
             <label>测试时间：{{ testDuration }} 分钟</label>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { useTyping } from '../composables/useTyping'
 import { useStorage } from '../composables/useStorage'
 import { getRandomArticle, type Article } from '../data/articles'
@@ -22,7 +22,9 @@ const storage = useStorage()
 
 const testText = ref('')
 const isActive = ref(false)
+const isComposing = ref(false)
 const timeLeft = ref(60)
+const testInput = ref<HTMLInputElement | null>(null)
 let timer: number | null = null
 
 const {
@@ -61,11 +63,12 @@ const formattedTime = computed(() => {
 
 onMounted(() => {
   initTest()
-  window.addEventListener('keydown', handleKeyDown)
+  nextTick(() => {
+    testInput.value?.focus()
+  })
 })
 
 onUnmounted(() => {
-  window.removeEventListener('keydown', handleKeyDown)
   if (timer) {
     clearInterval(timer)
   }
@@ -80,13 +83,15 @@ function initTest() {
 }
 
 function startTest() {
-  isActive.value = true
-  timer = window.setInterval(() => {
-    timeLeft.value--
-    if (timeLeft.value <= 0) {
-      endTest()
-    }
-  }, 1000)
+  if (!isActive.value) {
+    isActive.value = true
+    timer = window.setInterval(() => {
+      timeLeft.value--
+      if (timeLeft.value <= 0) {
+        endTest()
+      }
+    }, 1000)
+  }
 }
 
 function endTest() {
@@ -113,6 +118,8 @@ function endTest() {
 }
 
 function handleKeyDown(e: KeyboardEvent) {
+  if (e.ctrlKey || e.metaKey || e.altKey) return
+
   if (e.key === 'Backspace') {
     if (!isActive.value) return
     e.preventDefault()
@@ -120,7 +127,14 @@ function handleKeyDown(e: KeyboardEvent) {
     return
   }
 
-  if (e.key.length === 1 && !e.ctrlKey && !e.metaKey) {
+  if (e.key === 'Enter') {
+    if (isComposing.value) {
+      e.preventDefault()
+    }
+    return
+  }
+
+  if (e.key.length === 1) {
     e.preventDefault()
     if (!isActive.value) {
       startTest()
@@ -129,12 +143,56 @@ function handleKeyDown(e: KeyboardEvent) {
   }
 }
 
+function handleCompositionStart() {
+  isComposing.value = true
+}
+
+function handleCompositionEnd(e: CompositionEvent) {
+  isComposing.value = false
+  const composedText = e.data || ''
+
+  if (composedText) {
+    for (const char of composedText) {
+      handleKeyPress(char)
+    }
+  }
+
+  if (testInput.value) {
+    testInput.value.value = ''
+  }
+}
+
+function handleInput(e: Event) {
+  if (isComposing.value) return
+
+  const target = e.target as HTMLInputElement
+  const value = target.value
+
+  if (!value) return
+
+  for (const char of value) {
+    if (!isActive.value) {
+      startTest()
+    }
+    handleKeyPress(char)
+  }
+
+  target.value = ''
+}
+
 function retryTest() {
   if (timer) {
     clearInterval(timer)
     timer = null
   }
   initTest()
+  nextTick(() => {
+    testInput.value?.focus()
+  })
+}
+
+function focusInput() {
+  testInput.value?.focus()
 }
 </script>
 
@@ -165,7 +223,7 @@ function retryTest() {
       </div>
     </div>
 
-    <div class="typing-area">
+    <div class="typing-area" @click="focusInput">
       <div class="text-content">
         <span
           v-for="(item, index) in displayText"
@@ -173,7 +231,25 @@ function retryTest() {
           :class="['char', item.className]"
         >{{ item.char === ' ' ? '\u00A0' : item.char }}</span>
       </div>
-      <p class="start-hint" v-if="!isActive && state.currentIndex === 0">点击任意键开始测试...</p>
+      <p class="start-hint" v-if="!isActive && state.currentIndex === 0">
+        {{ language === 'zh' ? '使用输入法输入中文...' : '点击任意键开始测试...' }}
+      </p>
+    </div>
+
+    <div class="input-container">
+      <input
+        ref="testInput"
+        type="text"
+        class="hidden-input"
+        @keydown="handleKeyDown"
+        @compositionstart="handleCompositionStart"
+        @compositionend="handleCompositionEnd"
+        @input="handleInput"
+        autocomplete="off"
+        autocorrect="off"
+        autocapitalize="off"
+        spellcheck="false"
+      />
     </div>
 
     <div class="stats-bar">
@@ -245,6 +321,7 @@ function retryTest() {
   padding: 40px;
   min-height: 300px;
   margin-bottom: 24px;
+  cursor: text;
 }
 
 .large-font .typing-area {
@@ -288,6 +365,16 @@ function retryTest() {
   color: white;
   padding: 2px 0;
   border-radius: 2px;
+}
+
+.input-container {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .stats-bar {
