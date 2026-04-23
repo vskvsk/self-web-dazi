@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
 import TypingTest from './TypingTest.vue'
+import TypingPK from './TypingPK.vue'
 import KeyPractice from './KeyPractice.vue'
 import History from './History.vue'
 import Leaderboard from './Leaderboard.vue'
@@ -8,9 +9,8 @@ import CustomArticles from './CustomArticles.vue'
 import { useStorage } from '../composables/useStorage'
 import { getArticlesByLanguageWithCustom, type Article } from '../data/articles'
 
-type TypingMode = 'english' | 'chinese' | 'competition'
-type TestType = 'practice' | 'competition'
-type ViewMode = 'home' | 'test' | 'result' | 'history' | 'keyPractice' | 'leaderboard'
+type TypingMode = 'english' | 'chinese'
+type ViewMode = 'home' | 'test' | 'result' | 'history' | 'keyPractice' | 'leaderboard' | 'pk'
 type Theme = 'default' | 'kids'
 
 const storage = useStorage()
@@ -18,7 +18,6 @@ const storage = useStorage()
 const currentView = ref<ViewMode>('home')
 const username = ref('')
 const typingMode = ref<TypingMode>('english')
-const testType = ref<TestType>('practice')
 const selectedArticle = ref<Article | null>(null)
 const testDuration = ref(1)
 const lastResult = ref<any>(null)
@@ -30,15 +29,26 @@ const settings = ref({
   continueLast: false
 })
 const customArticles = ref<Article[]>([])
+const pkTarget = ref<any>(null)
 
-const currentLanguage = computed(() => typingMode.value === 'competition' ? 'en' : (typingMode.value === 'english' ? 'en' : 'zh'))
+// PK 模式入口
+function goToPk(record: any) {
+  if (!username.value.trim()) {
+    alert('请先输入用户名')
+    return
+  }
+  storage.setUsername(username.value)
+  pkTarget.value = record
+  currentView.value = 'pk'
+}
+
+const currentLanguage = computed(() => typingMode.value === 'english' ? 'en' : 'zh')
 const articles = computed(() => getArticlesByLanguageWithCustom(currentLanguage.value, customArticles.value))
 const currentArticle = computed(() => selectedArticle.value || articles.value[0])
 
 const languageMap: Record<TypingMode, 'en' | 'zh'> = {
   english: 'en',
-  chinese: 'zh',
-  competition: 'en'
+  chinese: 'zh'
 }
 
 onMounted(() => {
@@ -174,13 +184,6 @@ function handleCustomArticleSelect(article: Article) {
               >
                 中文打字
               </button>
-              <button
-                class="mode-btn"
-                :class="{ active: testType === 'competition' }"
-                @click="testType = 'competition'; typingMode = 'competition'"
-              >
-                竞赛模式
-              </button>
             </div>
           </div>
 
@@ -293,6 +296,7 @@ function handleCustomArticleSelect(article: Article) {
         v-if="currentView === 'history'"
         :username="username"
         @back="goHome"
+        @pk="goToPk"
       />
 
       <!-- 排行榜 -->
@@ -300,6 +304,16 @@ function handleCustomArticleSelect(article: Article) {
         v-if="currentView === 'leaderboard'"
         language="all"
         :limit="10"
+        @pk="goToPk"
+      />
+
+      <!-- PK 模式 -->
+      <TypingPK
+        v-if="currentView === 'pk'"
+        :username="username"
+        :target-record="pkTarget"
+        @complete="handleTestComplete"
+        @back="goHome"
       />
     </main>
 

@@ -7,6 +7,10 @@ const props = defineProps<{
   limit?: number
 }>()
 
+const emit = defineEmits<{
+  (e: 'pk', record: any): void
+}>()
+
 const storage = useStorage()
 
 const records = computed(() => {
@@ -89,6 +93,7 @@ function getMedal(rank: number): string {
             <span class="col-accuracy">准确率</span>
             <span class="col-duration">时长</span>
             <span class="col-date">日期</span>
+            <span class="col-action">操作</span>
           </div>
           <div
             v-for="record in groupedRecords['英文']"
@@ -102,6 +107,9 @@ function getMedal(rank: number): string {
             <span class="col-accuracy">{{ record.accuracy }}%</span>
             <span class="col-duration">{{ record.duration }}分钟</span>
             <span class="col-date">{{ formatDate(record.date) }}</span>
+            <span class="col-action">
+              <button class="btn-pk" @click="emit('pk', record)">PK</button>
+            </span>
           </div>
         </div>
       </div>
@@ -117,6 +125,7 @@ function getMedal(rank: number): string {
             <span class="col-accuracy">准确率</span>
             <span class="col-duration">时长</span>
             <span class="col-date">日期</span>
+            <span class="col-action">操作</span>
           </div>
           <div
             v-for="record in groupedRecords['中文']"
@@ -130,6 +139,9 @@ function getMedal(rank: number): string {
             <span class="col-accuracy">{{ record.accuracy }}%</span>
             <span class="col-duration">{{ record.duration }}分钟</span>
             <span class="col-date">{{ formatDate(record.date) }}</span>
+            <span class="col-action">
+              <button class="btn-pk" @click="emit('pk', record)">PK</button>
+            </span>
           </div>
         </div>
       </div>
@@ -205,7 +217,7 @@ function getMedal(rank: number): string {
 
 .table-header {
   display: grid;
-  grid-template-columns: 60px 1fr 80px 100px 80px 120px;
+  grid-template-columns: 60px 1fr 80px 100px 80px 120px 60px;
   padding: 12px 24px;
   background: var(--bg-secondary);
   font-weight: bold;
@@ -215,7 +227,7 @@ function getMedal(rank: number): string {
 
 .table-row {
   display: grid;
-  grid-template-columns: 60px 1fr 80px 100px 80px 120px;
+  grid-template-columns: 60px 1fr 80px 100px 80px 120px 60px;
   padding: 14px 24px;
   border-bottom: 1px solid var(--border-color);
   align-items: center;
@@ -262,5 +274,26 @@ function getMedal(rank: number): string {
 .col-date {
   color: var(--text-secondary);
   font-size: 14px;
+}
+
+.col-action {
+  text-align: center;
+}
+
+.btn-pk {
+  background: linear-gradient(135deg, #ff6b6b, #ff4757);
+  color: white;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-pk:hover {
+  transform: scale(1.05);
+  box-shadow: 0 2px 8px rgba(255, 71, 87, 0.4);
 }
 </style>

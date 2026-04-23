@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useStorage } from '../composables/useStorage'
+import type { TypingRecord } from '../composables/useStorage'
 
 const props = defineProps<{
   username: string
@@ -8,6 +9,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'back'): void
+  (e: 'pk', record: TypingRecord): void
 }>()
 
 const storage = useStorage()
@@ -88,6 +90,7 @@ function clearHistory() {
               <th>正确</th>
               <th>错误</th>
               <th>用时</th>
+              <th>操作</th>
             </tr>
           </thead>
           <tbody>
@@ -102,6 +105,9 @@ function clearHistory() {
               <td class="correct">{{ record.correctChars }}</td>
               <td class="error">{{ record.errors }}</td>
               <td>{{ Math.floor(record.duration / 60) }}'{{ record.duration % 60 }}"</td>
+              <td>
+                <button class="btn-pk" @click="emit('pk', record)">PK</button>
+              </td>
             </tr>
           </tbody>
         </table>
@@ -248,5 +254,22 @@ tbody tr:hover {
 
 .error {
   color: var(--error-color);
+}
+
+.btn-pk {
+  background: linear-gradient(135deg, #ff6b6b, #ff4757);
+  color: white;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-pk:hover {
+  transform: scale(1.05);
+  box-shadow: 0 2px 8px rgba(255, 71, 87, 0.4);
 }
 </style>
