@@ -127,6 +127,12 @@ export function useTyping(text: string) {
     typedChars.value = []
   }
 
+  function restoreProgress(index: number, chars: boolean[]) {
+    state.value.currentIndex = index
+    typedChars.value = [...chars]
+    state.value.errors = chars.filter(c => !c).length
+  }
+
   return {
     state,
     typedChars,
@@ -142,6 +148,7 @@ export function useTyping(text: string) {
     pause,
     resume,
     reset,
-    setText
+    setText,
+    restoreProgress
   }
 }

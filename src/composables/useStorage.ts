@@ -19,6 +19,16 @@ const STORAGE_KEY = 'typing-test-records'
 const USERNAME_KEY = 'typing-test-username'
 const SETTINGS_KEY = 'typing-test-settings'
 const CUSTOM_ARTICLES_KEY = 'typing-test-custom-articles'
+const LAST_PROGRESS_KEY = 'typing-test-last-progress'
+
+export interface LastProgress {
+  text: string
+  currentIndex: number
+  typedChars: boolean[]
+  language: 'en' | 'zh'
+  articleTitle: string
+  timestamp: number
+}
 
 export function useStorage() {
   const records = ref<TypingRecord[]>([])
@@ -138,6 +148,33 @@ export function useStorage() {
     localStorage.setItem(CUSTOM_ARTICLES_KEY, JSON.stringify(filtered))
   }
 
+  function saveLastProgress(progress: LastProgress) {
+    localStorage.setItem(LAST_PROGRESS_KEY, JSON.stringify(progress))
+  }
+
+  function getLastProgress(): LastProgress | null {
+    try {
+      const data = localStorage.getItem(LAST_PROGRESS_KEY)
+      if (data) {
+        const progress = JSON.parse(data) as LastProgress
+        // 如果进度超过24小时，清除它
+        const isExpired = Date.now() - progress.timestamp > 24 * 60 * 60 * 1000
+        if (isExpired) {
+          localStorage.removeItem(LAST_PROGRESS_KEY)
+          return null
+        }
+        return progress
+      }
+    } catch (error) {
+      console.error('Failed to load last progress:', error)
+    }
+    return null
+  }
+
+  function clearLastProgress() {
+    localStorage.removeItem(LAST_PROGRESS_KEY)
+  }
+
   loadRecords()
 
   return {
@@ -153,6 +190,9 @@ export function useStorage() {
     saveSettings,
     getCustomArticles,
     saveCustomArticle,
-    deleteCustomArticle
+    deleteCustomArticle,
+    saveLastProgress,
+    getLastProgress,
+    clearLastProgress
   }
 }

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import TypingTest from './TypingTest.vue'
 import KeyPractice from './KeyPractice.vue'
 import History from './History.vue'
@@ -50,6 +50,11 @@ onMounted(() => {
 
   applyTheme()
 })
+
+// 设置变更时自动保存
+watch(() => [settings.value.fontSize, settings.value.darkMode, settings.value.showTrail, settings.value.continueLast], () => {
+  storage.saveSettings({ ...settings.value, theme: currentTheme.value })
+}, { deep: true })
 
 function applyTheme() {
   document.documentElement.setAttribute('data-theme', settings.value.darkMode ? 'dark' : 'light')
@@ -234,6 +239,7 @@ function handleCustomArticleSelect(article: Article) {
         :duration="testDuration"
         :font-size="settings.fontSize"
         :show-trail="settings.showTrail"
+        :continue-last="settings.continueLast"
         @complete="handleTestComplete"
         @back="goHome"
       />

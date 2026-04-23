@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { useTyping } from '../composables/useTyping'
-import { useStorage } from '../composables/useStorage'
+import { useStorage, type LastProgress } from '../composables/useStorage'
 import { getRandomArticle, type Article } from '../data/articles'
 
 const props = defineProps<{
@@ -11,6 +11,7 @@ const props = defineProps<{
   duration: number
   fontSize: 'normal' | 'large'
   showTrail: boolean
+  continueLast: boolean
 }>()
 
 const emit = defineEmits<{
@@ -26,6 +27,8 @@ const isComposing = ref(false)
 const timeLeft = ref(60)
 const testInput = ref<HTMLInputElement | null>(null)
 let timer: number | null = null
+let saveProgressTimer: number | null = null
+let lastProgress: LastProgress | null = null
 
 const {
   state,
@@ -36,7 +39,8 @@ const {
   progress,
   handleKeyPress,
   handleBackspace,
-  setText
+  setText,
+  restoreProgress
 } = useTyping('')
 
 const totalChars = computed(() => state.value.text.length)
@@ -50,9 +54,17 @@ const displayText = computed(() => {
       className = typedChars.value[index] ? 'correct' : 'error'
     } else if (index === state.value.currentIndex) {
       className = 'current'
+    } else if (props.showTrail && lastProgress && index < lastProgress.currentIndex) {
+      // 显示上次轨迹 - 用淡色标记
+      className = lastProgress.typedChars[index] ? 'trail-correct' : 'trail-error'
     }
     return { char, className }
   })
+})
+
+// 是否有上次的轨迹可以显示
+const hasTrail = computed(() => {
+  return lastProgress !== null && lastProgress.currentIndex > 0
 })
 
 const formattedTime = computed(() => {
@@ -66,12 +78,19 @@ onMounted(() => {
   nextTick(() => {
     testInput.value?.focus()
   })
+  // 每10秒保存一次进度
+  saveProgressTimer = window.setInterval(saveProgress, 10000)
 })
 
 onUnmounted(() => {
   if (timer) {
     clearInterval(timer)
   }
+  if (saveProgressTimer) {
+    clearInterval(saveProgressTimer)
+  }
+  // 退出时保存进度
+  saveProgress()
 })
 
 function initTest() {
@@ -80,6 +99,30 @@ function initTest() {
   setText(article.content)
   timeLeft.value = props.duration * 60
   isActive.value = false
+
+  // 加载上次进度（如果是同一篇文章）
+  lastProgress = storage.getLastProgress()
+  if (lastProgress && lastProgress.text === article.content && lastProgress.currentIndex > 0) {
+    if (props.continueLast) {
+      // 继续上次打字
+      restoreProgress(lastProgress.currentIndex, lastProgress.typedChars)
+    }
+    // showTrail 功能会在 displayText 中自动处理，因为 lastProgress 已加载
+  }
+}
+
+// 定期保存进度
+function saveProgress() {
+  if (state.value.currentIndex > 0 && !state.value.isCompleted) {
+    storage.saveLastProgress({
+      text: state.value.text,
+      currentIndex: state.value.currentIndex,
+      typedChars: [...typedChars.value],
+      language: props.language,
+      articleTitle: props.article?.title || '随机文章',
+      timestamp: Date.now()
+    })
+  }
 }
 
 function startTest() {
@@ -91,6 +134,8 @@ function startTest() {
         endTest()
       }
     }, 1000)
+    // 测试开始时保存进度
+    saveProgress()
   }
 }
 
@@ -100,6 +145,9 @@ function endTest() {
     timer = null
   }
   isActive.value = false
+
+  // 清除保存的进度
+  storage.clearLastProgress()
 
   const result = {
     username: props.username,
@@ -232,7 +280,7 @@ function focusInput() {
         >{{ item.char === ' ' ? '\u00A0' : item.char }}</span>
       </div>
       <p class="start-hint" v-if="!isActive && state.currentIndex === 0">
-        {{ language === 'zh' ? '使用输入法输入中文...' : '点击任意键开始测试...' }}
+        {{ hasTrail && showTrail ? '显示上次轨迹（绿色/红色标记），继续打字可恢复进度' : (language === 'zh' ? '使用输入法输入中文...' : '点击任意键开始测试...') }}
       </p>
     </div>
 
@@ -365,6 +413,17 @@ function focusInput() {
   color: white;
   padding: 2px 0;
   border-radius: 2px;
+}
+
+/* 上次轨迹样式 */
+.char.trail-correct {
+  color: var(--success-color);
+  opacity: 0.4;
+}
+
+.char.trail-error {
+  color: var(--error-color);
+  opacity: 0.4;
 }
 
 .input-container {
