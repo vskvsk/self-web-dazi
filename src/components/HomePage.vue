@@ -3,6 +3,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import TypingTest from './TypingTest.vue'
 import TypingPK from './TypingPK.vue'
 import KeyPractice from './KeyPractice.vue'
+import TypingGames from './TypingGames.vue'
 import History from './History.vue'
 import Leaderboard from './Leaderboard.vue'
 import CustomArticles from './CustomArticles.vue'
@@ -10,7 +11,7 @@ import { useStorage } from '../composables/useStorage'
 import { getArticlesByLanguageWithCustom, type Article } from '../data/articles'
 
 type TypingMode = 'english' | 'chinese'
-type ViewMode = 'home' | 'test' | 'result' | 'history' | 'keyPractice' | 'leaderboard' | 'pk'
+type ViewMode = 'home' | 'test' | 'result' | 'history' | 'keyPractice' | 'leaderboard' | 'pk' | 'games'
 type Theme = 'default' | 'kids'
 
 const storage = useStorage()
@@ -122,6 +123,10 @@ function goToKeyPractice() {
   currentView.value = 'keyPractice'
 }
 
+function goToGames() {
+  currentView.value = 'games'
+}
+
 function handleCustomArticleSelect(article: Article) {
   selectedArticle.value = article
 }
@@ -135,6 +140,7 @@ function handleCustomArticleSelect(article: Article) {
         <nav class="nav">
           <span class="username-display" v-if="username">{{ username }}</span>
           <button class="btn btn-secondary" @click="goToKeyPractice" v-if="currentView === 'home'">键位练习</button>
+          <button class="btn btn-secondary" @click="goToGames" v-if="currentView === 'home'">打字游戏</button>
           <button class="btn btn-secondary" @click="viewLeaderboard" v-if="currentView === 'home'">排行榜</button>
           <button class="btn btn-secondary" @click="viewHistory" v-if="currentView === 'home'">历史记录</button>
           <button class="btn btn-secondary" @click="goHome" v-if="currentView !== 'home'">返回首页</button>
@@ -251,6 +257,12 @@ function handleCustomArticleSelect(article: Article) {
       <KeyPractice
         v-if="currentView === 'keyPractice'"
         @complete="handleKeyPracticeComplete"
+        @back="goHome"
+      />
+
+      <!-- 打字游戏 -->
+      <TypingGames
+        v-if="currentView === 'games'"
         @back="goHome"
       />
 
