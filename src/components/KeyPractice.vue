@@ -15,11 +15,12 @@ const errorCount = ref(0)
 const startTime = ref<number | null>(null)
 const isCompleted = ref(false)
 const showHint = ref(true)
+const charResults = ref<boolean[]>([])
 
 const displayChars = computed(() => {
   return expectedChar.value.split('').map((char, index) => {
     if (index < currentIndex.value) {
-      return { char, className: 'typed' }
+      return { char, className: charResults.value[index] ? 'typed' : 'typed error' }
     } else if (index === currentIndex.value) {
       return { char, className: 'current' }
     }
@@ -65,6 +66,7 @@ function generatePractice() {
 
   expectedChar.value = practiceStr
   currentIndex.value = 0
+  charResults.value = []
   showHint.value = true
 }
 
@@ -93,6 +95,7 @@ function handleKeyDown(e: KeyboardEvent) {
     const expected = expectedChar.value[currentIndex.value]
     if (e.key === expected) {
       correctCount.value++
+      charResults.value.push(true)
       currentIndex.value++
 
       if (currentIndex.value >= expectedChar.value.length) {
@@ -107,6 +110,7 @@ function handleKeyDown(e: KeyboardEvent) {
       }
     } else {
       errorCount.value++
+      charResults.value.push(false)
       currentIndex.value++
 
       if (currentIndex.value >= expectedChar.value.length) {
@@ -133,6 +137,7 @@ function reset() {
   correctCount.value = 0
   errorCount.value = 0
   currentIndex.value = 0
+  charResults.value = []
   startTime.value = null
   isCompleted.value = false
   showHint.value = true
@@ -372,6 +377,10 @@ function retry() {
 
 .char.typed {
   color: var(--success-color);
+}
+
+.char.typed.error {
+  color: var(--error-color);
 }
 
 .char.current {
