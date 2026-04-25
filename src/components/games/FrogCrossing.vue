@@ -1,97 +1,234 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 
 const emit = defineEmits<{
   (e: 'back'): void
   (e: 'complete', result: any): void
 }>()
 
-interface FallingChar {
-  char: string
+interface LilyPad {
+  id: number
+  word: string
+  typedIndex: number
   x: number
   y: number
+  row: number
+  direction: number
   speed: number
-  lane: number
+  reached: boolean
+}
+
+interface JumpAnimation {
+  endX: number
+  endY: number
+  progress: number
 }
 
 const gameAreaRef = ref<HTMLElement | null>(null)
 const gameWidth = ref(600)
-const gameHeight = ref(400)
-const lanes = 8
-const laneWidth = computed(() => gameWidth.value / lanes)
+const gameHeight = ref(520)
+const rows = 5
+const startBankHeight = 60
+const goalHeight = 60
+const waterHeight = computed(() => gameHeight.value - startBankHeight - goalHeight)
+const rowHeight = computed(() => waterHeight.value / rows)
 
-const lives = ref(3)
+const timeLeft = ref(60)
 const score = ref(0)
 const isPlaying = ref(false)
 const isGameOver = ref(false)
-const currentChar = ref<FallingChar | null>(null)
-const frogPosition = ref(3)
-const typedChars = ref<{ char: string; x: number; y: number; correct: boolean }[]>([])
-const lastTypedChar = ref<{ char: string; x: number; y: number } | null>(null)
+const lilyPads = ref<LilyPad[]>([])
+const frogPosition = ref({ x: 0, y: 0 })
+const frogRow = ref(-1)
+const frogPadId = ref<number | null>(null)
+const isJumping = ref(false)
+const jumpAnim = ref<JumpAnimation | null>(null)
+const typedChars = ref(0)
+const correctChars = ref(0)
+const jumpCount = ref(0)
+let nextId = 0
+let gameLoop: number | null = null
+let timerInterval: number | null = null
+
+const currentPad = computed(() => {
+  if (frogPadId.value === null) return null
+  return lilyPads.value.find(p => p.id === frogPadId.value)
+})
+
+const nextRowPads = computed(() => {
+  const nextRow = frogRow.value + 1
+  if (nextRow >= rows) return []
+  return lilyPads.value.filter(p => p.row === nextRow && !p.reached)
+})
+
+function canTypeOnPad(pad: LilyPad): boolean {
+  const nextRow = frogRow.value + 1
+  return pad.row === nextRow && !pad.reached
+}
+
+const reachedGoal = computed(() => frogRow.value === rows - 1 && frogPadId.value !== null)
 
 const wpm = computed(() => {
-  if (typedChars.value.length === 0) return 0
-  const correctCount = typedChars.value.filter(c => c.correct).length
-  return Math.round(correctCount / 1)
+  if (typedChars.value === 0) return 0
+  return Math.round(correctChars.value * 2)
 })
 
 const accuracy = computed(() => {
-  if (typedChars.value.length === 0) return 100
-  const correctCount = typedChars.value.filter(c => c.correct).length
-  return Math.round((correctCount / typedChars.value.length) * 100)
+  if (typedChars.value === 0) return 100
+  return Math.round((correctChars.value / typedChars.value) * 100)
 })
 
-const chars = 'asdfjkl;qwertyuiopzxcvbnm,.'.split('')
-let gameLoop: number | null = null
-let charTimer: number | null = null
+const words = [
+  'cat', 'dog', 'sun', 'hat', 'run', 'big', 'red', 'box', 'cup', 'pen',
+  'apple', 'book', 'cake', 'door', 'fish', 'game', 'hand', 'jump', 'king', 'lamp',
+  'bird', 'tree', 'frog', 'duck', 'bear', 'milk', 'moon', 'nest', 'owl', 'pig',
+  'star', 'rain', 'snow', 'wind', 'leaf', 'rock', 'sand', 'wave', 'flag', 'ship',
+  'happy', 'house', 'mouse', 'plant', 'quiet', 'river', 'snake', 'tiger', 'water', 'zebra',
+  'beach', 'chair', 'dance', 'earth', 'flame', 'grape', 'horse', 'juice', 'kite', 'lemon'
+]
 
-function generateChar() {
-  const char = chars[Math.floor(Math.random() * chars.length)]
-  const lane = Math.floor(Math.random() * lanes)
-  currentChar.value = {
-    char,
-    x: lane * laneWidth.value + laneWidth.value / 2,
-    y: 0,
-    speed: 1 + Math.random() * 0.5,
-    lane
+function getRandomWord(): string {
+  return words[Math.floor(Math.random() * words.length)]
+}
+
+function getRowY(row: number): number {
+  // row 0 在底部（靠近起点），row 4 在顶部（靠近对岸）
+  return goalHeight + rowHeight.value * (rows - row - 0.5)
+}
+
+function createLilyPad(row: number): LilyPad {
+  const word = getRandomWord()
+  const direction = Math.random() > 0.5 ? 1 : -1
+  const x = direction > 0 ? -100 : gameWidth.value + 100
+  return {
+    id: nextId++,
+    word,
+    typedIndex: 0,
+    x,
+    y: getRowY(row),
+    row,
+    direction,
+    speed: 0.8 + Math.random() * 0.8,
+    reached: false
   }
 }
 
-function startGame() {
-  lives.value = 3
+function initLilyPads() {
+  lilyPads.value = []
+  for (let row = 0; row < rows; row++) {
+    const pad = createLilyPad(row)
+    pad.x = Math.random() * (gameWidth.value - 200) + 100
+    lilyPads.value.push(pad)
+  }
+}
+
+async function startGame() {
+  timeLeft.value = 60
   score.value = 0
+  typedChars.value = 0
+  correctChars.value = 0
+  jumpCount.value = 0
   isPlaying.value = true
   isGameOver.value = false
-  frogPosition.value = 3
-  typedChars.value = []
-  currentChar.value = null
-  generateChar()
+  isJumping.value = false
+  jumpAnim.value = null
+  frogRow.value = -1
+  frogPadId.value = null
+  nextId = 0
+
+  await nextTick()
+
+  if (gameAreaRef.value) {
+    gameWidth.value = gameAreaRef.value.offsetWidth
+    gameHeight.value = gameAreaRef.value.offsetHeight
+  }
+
+  initLilyPads()
+
+  // 青蛙在起点位置（底部起点线上）
+  frogPosition.value = {
+    x: 80,
+    y: gameHeight.value - startBankHeight / 2
+  }
+
   gameLoop = requestAnimationFrame(update)
-  charTimer = window.setInterval(() => {
+  timerInterval = window.setInterval(() => {
     if (isPlaying.value && !isGameOver.value) {
-      generateChar()
+      timeLeft.value--
+      if (timeLeft.value <= 0) {
+        endGame()
+      }
     }
-  }, 2000)
+  }, 1000)
 }
 
 function update() {
   if (!isPlaying.value || isGameOver.value) return
 
-  if (currentChar.value) {
-    currentChar.value.y += currentChar.value.speed
+  if (!isJumping.value) {
+    lilyPads.value.forEach(pad => {
+      pad.x += pad.direction * pad.speed
+    })
 
-    if (currentChar.value.y >= gameHeight.value - 60) {
-      if (Math.abs(currentChar.value.lane - frogPosition.value) <= 0) {
-        lives.value--
-        currentChar.value = null
-        if (lives.value <= 0) {
-          endGame()
-          return
-        }
+    if (frogPadId.value !== null && currentPad.value) {
+      const pad = currentPad.value
+      if (pad.x < -80 || pad.x > gameWidth.value + 80) {
+        frogRow.value = -1
+        frogPadId.value = null
+        frogPosition.value.x = 80
+        frogPosition.value.y = gameHeight.value - startBankHeight / 2
       } else {
-        currentChar.value = null
-        generateChar()
+        frogPosition.value.x = pad.x
+        frogPosition.value.y = pad.y
       }
+    }
+
+    for (let row = 0; row < rows; row++) {
+      const hasActivePad = lilyPads.value.some(p => p.row === row)
+      if (!hasActivePad && row !== frogRow.value) {
+        lilyPads.value.push(createLilyPad(row))
+      }
+    }
+
+    lilyPads.value = lilyPads.value.filter(pad => {
+      if (pad.x < -150 || pad.x > gameWidth.value + 150) {
+        if (pad.id === frogPadId.value) {
+          return true
+        }
+        return false
+      }
+      return true
+    })
+  } else if (jumpAnim.value) {
+    jumpAnim.value.progress += 0.04
+    const t = jumpAnim.value.progress
+
+    const startY = frogRow.value < 0
+      ? gameHeight.value - startBankHeight / 2
+      : getRowY(frogRow.value)
+    const startX = frogPosition.value.x
+
+    if (t >= 1) {
+      frogPosition.value.x = jumpAnim.value.endX
+      frogPosition.value.y = jumpAnim.value.endY
+      isJumping.value = false
+      jumpAnim.value = null
+
+      // 检查是否到达对岸
+      if (frogRow.value === rows - 1) {
+        emit('complete', {
+          score: score.value,
+          jumps: jumpCount.value,
+          wpm: wpm.value,
+          accuracy: accuracy.value
+        })
+      }
+    } else {
+      const easeT = 1 - Math.pow(1 - t, 3)
+      const jumpHeight = Math.sin(t * Math.PI) * 100
+
+      frogPosition.value.x = startX + (jumpAnim.value.endX - startX) * easeT
+      frogPosition.value.y = startY + (jumpAnim.value.endY - startY) * easeT - jumpHeight
     }
   }
 
@@ -99,48 +236,55 @@ function update() {
 }
 
 function handleKeyDown(e: KeyboardEvent) {
-  if (!isPlaying.value || isGameOver.value) return
+  if (!isPlaying.value || isGameOver.value || isJumping.value) return
+
+  if (e.key === 'Backspace') {
+    e.preventDefault()
+    for (const pad of nextRowPads.value) {
+      if (pad.typedIndex > 0) {
+        pad.typedIndex--
+        break
+      }
+    }
+    return
+  }
 
   if (e.key.length === 1 && !e.ctrlKey && !e.metaKey) {
     e.preventDefault()
+    const char = e.key.toLowerCase()
 
-    if (currentChar.value) {
-      const expected = currentChar.value.char
-      if (e.key === expected) {
-        const correct = Math.abs(currentChar.value.lane - frogPosition.value) <= 1
-        typedChars.value.push({
-          char: e.key,
-          x: currentChar.value.x,
-          y: currentChar.value.y,
-          correct
-        })
-        lastTypedChar.value = {
-          char: e.key,
-          x: currentChar.value.x,
-          y: currentChar.value.y
-        }
-        setTimeout(() => {
-          lastTypedChar.value = null
-        }, 300)
+    const targetPad = nextRowPads.value.find(pad => {
+      const nextChar = pad.word[pad.typedIndex]
+      return nextChar === char
+    })
 
-        score.value += correct ? 10 : 0
-        frogPosition.value = currentChar.value.lane
-        currentChar.value = null
-        generateChar()
-      } else {
-        lives.value--
-        if (lives.value <= 0) {
-          endGame()
+    if (targetPad) {
+      typedChars.value++
+      correctChars.value++
+      targetPad.typedIndex++
+
+      if (targetPad.typedIndex === targetPad.word.length) {
+        score.value += targetPad.word.length * 10
+        jumpCount.value++
+
+        targetPad.reached = true
+        frogRow.value = targetPad.row
+        frogPadId.value = targetPad.id
+
+        jumpAnim.value = {
+          endX: targetPad.x,
+          endY: targetPad.y,
+          progress: 0
         }
+        isJumping.value = true
       }
+    } else {
+      nextRowPads.value.forEach(pad => {
+        if (pad.typedIndex > 0) {
+          pad.typedIndex--
+        }
+      })
     }
-  }
-
-  if (e.key === 'ArrowLeft' && frogPosition.value > 0) {
-    frogPosition.value--
-  }
-  if (e.key === 'ArrowRight' && frogPosition.value < lanes - 1) {
-    frogPosition.value++
   }
 }
 
@@ -148,34 +292,21 @@ function endGame() {
   isPlaying.value = false
   isGameOver.value = true
   if (gameLoop) cancelAnimationFrame(gameLoop)
-  if (charTimer) clearInterval(charTimer)
+  if (timerInterval) clearInterval(timerInterval)
 }
 
 function retry() {
   startGame()
 }
 
-function handleComplete() {
-  emit('complete', {
-    wpm: wpm.value,
-    accuracy: accuracy.value,
-    score: score.value,
-    lives: lives.value
-  })
-}
-
 onMounted(() => {
-  if (gameAreaRef.value) {
-    gameWidth.value = gameAreaRef.value.offsetWidth
-    gameHeight.value = gameAreaRef.value.offsetHeight
-  }
   window.addEventListener('keydown', handleKeyDown)
 })
 
 onUnmounted(() => {
   window.removeEventListener('keydown', handleKeyDown)
   if (gameLoop) cancelAnimationFrame(gameLoop)
-  if (charTimer) clearInterval(charTimer)
+  if (timerInterval) clearInterval(timerInterval)
 })
 </script>
 
@@ -183,13 +314,17 @@ onUnmounted(() => {
   <div class="frog-crossing">
     <div class="game-header">
       <div class="stats">
-        <div class="stat">
-          <span class="label">生命</span>
-          <span class="value">{{ '❤️'.repeat(lives) }}</span>
+        <div class="stat timer">
+          <span class="label">剩余时间</span>
+          <span class="value" :class="{ warning: timeLeft <= 10 }">{{ timeLeft }}s</span>
         </div>
         <div class="stat">
           <span class="label">得分</span>
           <span class="value score">{{ score }}</span>
+        </div>
+        <div class="stat">
+          <span class="label">跳跃</span>
+          <span class="value">{{ jumpCount }}</span>
         </div>
       </div>
       <button class="btn btn-secondary" @click="emit('back')">退出</button>
@@ -198,17 +333,26 @@ onUnmounted(() => {
     <div v-if="!isPlaying && !isGameOver" class="start-screen">
       <div class="frog-icon">🐸</div>
       <h2>青蛙过河</h2>
-      <p>帮助小青蛙跳过池塘！</p>
-      <p class="tips">使用方向键 ← → 移动青蛙<br/>输入屏幕上方的字符让青蛙跳到对应位置</p>
+      <p>帮助小青蛙跳过池塘到达对岸！</p>
+      <p class="tips">
+        观察荷叶上的单词<br/>
+        输入完整的单词让青蛙跳到荷叶上<br/>
+        从下往上逐层跳跃到达对岸<br/>
+        60秒内尽可能多地跳跃！
+      </p>
       <button class="btn btn-primary" @click="startGame">开始游戏</button>
     </div>
 
     <div v-if="isGameOver" class="game-over">
-      <h2>游戏结束</h2>
+      <h2>{{ reachedGoal ? '恭喜到达对岸！' : '游戏结束！' }}</h2>
       <div class="result-stats">
-        <div class="result-item">
+        <div class="result-item highlight">
           <span class="label">最终得分</span>
           <span class="value">{{ score }}</span>
+        </div>
+        <div class="result-item">
+          <span class="label">跳跃次数</span>
+          <span class="value">{{ jumpCount }}</span>
         </div>
         <div class="result-item">
           <span class="label">打字速度</span>
@@ -226,33 +370,53 @@ onUnmounted(() => {
     </div>
 
     <div v-if="isPlaying" ref="gameAreaRef" class="game-area">
-      <div class="pond">
+      <div class="goal">
+        <span>对岸</span>
+        <span class="goal-hint" v-if="frogRow < rows - 1">跳到第{{ frogRow + 2 }}层荷叶即可到达</span>
+        <span class="goal-hint success" v-else>已到达对岸！</span>
+      </div>
+
+      <div class="rows-container">
         <div
-          v-for="i in lanes"
+          v-for="i in rows"
           :key="i"
-          class="lane"
-        ></div>
-        <div
-          v-for="(item, index) in typedChars"
-          :key="'typed-' + index"
-          class="typed-char"
-          :class="{ correct: item.correct }"
-          :style="{ left: item.x + 'px', top: item.y + 'px' }"
-        >{{ item.char }}</div>
-        <div
-          v-if="lastTypedChar"
-          class="flying-char"
-          :style="{ left: lastTypedChar.x + 'px', top: lastTypedChar.y + 'px' }"
-        >{{ lastTypedChar.char }}</div>
-        <div
-          v-if="currentChar"
-          class="falling-char"
-          :style="{ left: currentChar.x + 'px', top: currentChar.y + 'px' }"
-        >{{ currentChar.char }}</div>
-        <div
-          class="frog"
-          :style="{ left: (frogPosition * laneWidth + laneWidth / 2 - 25) + 'px' }"
-        >🐸</div>
+          class="row"
+          :class="{ 'next-row': frogRow + 1 === i - 1 }"
+          :style="{ bottom: (startBankHeight + (i - 1) * rowHeight) + 'px', height: rowHeight + 'px' }"
+        >
+          <div class="row-label">{{ rows - i + 1 }}</div>
+          <div class="water-line"></div>
+        </div>
+      </div>
+
+      <div
+        v-for="pad in lilyPads"
+        :key="pad.id"
+        class="lily-pad"
+        :class="{
+          'can-type': canTypeOnPad(pad),
+          reached: pad.reached,
+          'frog-here': pad.id === frogPadId
+        }"
+        :style="{ left: pad.x + 'px', top: pad.y + 'px' }"
+      >
+        <div class="pad-base">🍀</div>
+        <div class="pad-word" v-if="!pad.reached || pad.id === frogPadId">
+          <span class="typed">{{ pad.word.slice(0, pad.typedIndex) }}</span>
+          <span class="remaining">{{ pad.word.slice(pad.typedIndex) }}</span>
+        </div>
+      </div>
+
+      <div
+        class="frog"
+        :class="{ jumping: isJumping }"
+        :style="{ left: frogPosition.x + 'px', top: frogPosition.y + 'px' }"
+      >
+        🐸
+      </div>
+
+      <div class="start-bank" v-if="frogRow < 0">
+        <span class="bank-label">起点</span>
       </div>
     </div>
   </div>
@@ -289,9 +453,24 @@ onUnmounted(() => {
 }
 
 .stat .value {
-  font-size: 20px;
+  font-size: 24px;
   font-weight: bold;
   color: var(--primary-color);
+}
+
+.stat.timer .value {
+  color: var(--primary-color);
+  min-width: 60px;
+}
+
+.stat.timer .value.warning {
+  color: var(--error-color);
+  animation: blink 0.5s ease-in-out infinite;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
 }
 
 .stat .value.score {
@@ -310,12 +489,12 @@ onUnmounted(() => {
 .frog-icon {
   font-size: 80px;
   margin-bottom: 20px;
-  animation: hop 1s ease-in-out infinite;
+  animation: hop 0.8s ease-in-out infinite;
 }
 
 @keyframes hop {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-20px); }
+  0%, 100% { transform: translateY(0) rotate(-5deg); }
+  50% { transform: translateY(-25px) rotate(5deg); }
 }
 
 .start-screen h2,
@@ -331,25 +510,38 @@ onUnmounted(() => {
 }
 
 .tips {
-  font-size: 14px;
+  font-size: 15px;
   margin-bottom: 24px !important;
   line-height: 1.8;
 }
 
 .result-stats {
-  display: flex;
-  justify-content: center;
-  gap: 32px;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
   margin: 32px 0;
 }
 
 .result-item {
   text-align: center;
+  padding: 16px;
+  background: var(--bg-secondary);
+  border-radius: 12px;
+}
+
+.result-item.highlight {
+  background: linear-gradient(135deg, var(--success-color) 0%, #16a34a 100%);
+}
+
+.result-item.highlight .label,
+.result-item.highlight .value {
+  color: white;
 }
 
 .result-item .label {
   display: block;
   color: var(--text-secondary);
+  font-size: 14px;
   margin-bottom: 8px;
 }
 
@@ -366,82 +558,189 @@ onUnmounted(() => {
 }
 
 .game-area {
-  height: 450px;
-  background: linear-gradient(180deg, #87CEEB 0%, #98FB98 50%, #228B22 100%);
+  height: 520px;
+  background: linear-gradient(180deg,
+    #051f35 0%,
+    #072d47 20%,
+    #0a3d5c 40%,
+    #0d4d6a 60%,
+    #1a5a7a 80%,
+    #87CEEB 100%
+  );
   border-radius: 16px;
   overflow: hidden;
   position: relative;
 }
 
-.pond {
-  width: 100%;
-  height: 100%;
-  position: relative;
+.goal {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 60px;
+  background: linear-gradient(90deg, #8B4513 0%, #A0522D 50%, #8B4513 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  font-weight: bold;
+  color: white;
+  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
+  z-index: 2;
+  border-bottom: 3px solid #654321;
 }
 
-.lane {
+.goal-hint {
+  font-size: 12px;
+  font-weight: normal;
+  color: rgba(255, 255, 255, 0.7);
+  margin-top: 2px;
+}
+
+.goal-hint.success {
+  color: #90EE90;
+  font-weight: bold;
+}
+
+.rows-container {
+  position: absolute;
+  top: 60px;
+  left: 0;
+  right: 0;
+  bottom: 60px;
+}
+
+.row {
   position: absolute;
   left: 0;
   right: 0;
-  height: 25%;
-  border-bottom: 2px dashed rgba(255, 255, 255, 0.3);
+  border-bottom: 1px dashed rgba(255, 255, 255, 0.15);
 }
 
-.lane:nth-child(odd) {
-  background: rgba(34, 139, 34, 0.2);
+.row.next-row {
+  background: rgba(34, 197, 94, 0.1);
+  border-bottom-color: rgba(34, 197, 94, 0.3);
 }
 
-.lane:nth-child(even) {
-  background: rgba(135, 206, 235, 0.3);
-}
-
-.lane:last-child {
-  border-bottom: none;
-  background: linear-gradient(180deg, #228B22 0%, #006400 100%);
-}
-
-.falling-char {
+.row-label {
   position: absolute;
-  transform: translate(-50%, -50%);
-  font-size: 32px;
+  left: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.4);
   font-weight: bold;
-  color: white;
-  text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
-  animation: pulse 0.5s ease-in-out infinite;
 }
 
-@keyframes pulse {
-  0%, 100% { transform: translate(-50%, -50%) scale(1); }
-  50% { transform: translate(-50%, -50%) scale(1.1); }
+.water-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 2px;
+  background: repeating-linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.1) 20px,
+    transparent 40px
+  );
+  animation: waterFlow 2s linear infinite;
 }
 
-.typed-char {
+@keyframes waterFlow {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(40px); }
+}
+
+.lily-pad {
   position: absolute;
   transform: translate(-50%, -50%);
-  font-size: 24px;
-  color: var(--error-color);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  z-index: 5;
 }
 
-.typed-char.correct {
+.pad-base {
+  font-size: 48px;
+  filter: drop-shadow(2px 4px 6px rgba(0, 0, 0, 0.4));
+  transition: transform 0.2s, filter 0.2s;
+}
+
+.lily-pad.can-type .pad-base {
+  transform: scale(1.15);
+  filter: drop-shadow(0 0 12px rgba(34, 197, 94, 0.7)) drop-shadow(2px 4px 6px rgba(0, 0, 0, 0.4));
+}
+
+.lily-pad.frog-here .pad-base {
+  transform: scale(1.2);
+  filter: drop-shadow(0 0 15px rgba(255, 200, 0, 0.8)) drop-shadow(2px 4px 6px rgba(0, 0, 0, 0.4));
+}
+
+.pad-word {
+  background: rgba(0, 0, 0, 0.75);
+  padding: 6px 12px;
+  border-radius: 8px;
+  margin-top: 4px;
+  font-family: 'Courier New', monospace;
+  font-size: 16px;
+  font-weight: bold;
+  letter-spacing: 1px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  white-space: nowrap;
+}
+
+.lily-pad.can-type .pad-word {
+  background: rgba(34, 139, 34, 0.9);
+  border-color: var(--success-color);
+  box-shadow: 0 0 10px rgba(34, 197, 94, 0.5);
+}
+
+.pad-word .typed {
   color: var(--success-color);
+  text-shadow: 0 0 5px rgba(34, 197, 94, 0.8);
 }
 
-.flying-char {
-  position: absolute;
-  transform: translate(-50%, -50%);
-  font-size: 28px;
-  animation: fly 0.3s ease-out forwards;
-}
-
-@keyframes fly {
-  0% { opacity: 1; }
-  100% { opacity: 0; transform: translate(-50%, -150%); }
+.pad-word .remaining {
+  color: white;
 }
 
 .frog {
   position: absolute;
-  bottom: 10px;
-  font-size: 48px;
-  transition: left 0.2s ease;
+  transform: translate(-50%, -50%);
+  font-size: 44px;
+  z-index: 20;
+  filter: drop-shadow(2px 4px 8px rgba(0, 0, 0, 0.5));
+}
+
+.frog.jumping {
+  animation: frogJump 0.05s ease-out infinite;
+}
+
+@keyframes frogJump {
+  0%, 100% { transform: translate(-50%, -50%) rotate(-5deg); }
+  50% { transform: translate(-50%, -50%) rotate(5deg); }
+}
+
+.start-bank {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 60px;
+  background: linear-gradient(180deg, #8B4513 0%, #654321 100%);
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-top: 4px solid #A0522D;
+}
+
+.bank-label {
+  font-size: 14px;
+  font-weight: bold;
+  color: rgba(255, 255, 255, 0.8);
+  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
 }
 </style>
