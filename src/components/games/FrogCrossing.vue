@@ -27,7 +27,7 @@ interface JumpAnimation {
 const gameAreaRef = ref<HTMLElement | null>(null)
 const gameWidth = ref(600)
 const gameHeight = ref(520)
-const rows = 5
+const rows = 10
 const startBankHeight = 60
 const goalHeight = 60
 const waterHeight = computed(() => gameHeight.value - startBankHeight - goalHeight)
@@ -37,6 +37,7 @@ const timeLeft = ref(60)
 const score = ref(0)
 const isPlaying = ref(false)
 const isGameOver = ref(false)
+const isCompleted = ref(false)
 const lilyPads = ref<LilyPad[]>([])
 const frogPosition = ref({ x: 0, y: 0 })
 const frogRow = ref(-1)
@@ -130,6 +131,7 @@ async function startGame() {
   jumpCount.value = 0
   isPlaying.value = true
   isGameOver.value = false
+  isCompleted.value = false
   isJumping.value = false
   jumpAnim.value = null
   frogRow.value = -1
@@ -168,19 +170,23 @@ function update() {
   if (!isJumping.value) {
     lilyPads.value.forEach(pad => {
       pad.x += pad.direction * pad.speed
+      // 载有青蛙的荷叶到达边缘时弹回
+      if (pad.id === frogPadId.value) {
+        if (pad.x < 0) {
+          pad.x = 0
+          pad.direction = 1
+        } else if (pad.x > gameWidth.value) {
+          pad.x = gameWidth.value
+          pad.direction = -1
+        }
+      }
     })
 
+    // 青蛙跟随载它的荷叶移动
     if (frogPadId.value !== null && currentPad.value) {
       const pad = currentPad.value
-      if (pad.x < -80 || pad.x > gameWidth.value + 80) {
-        frogRow.value = -1
-        frogPadId.value = null
-        frogPosition.value.x = 80
-        frogPosition.value.y = gameHeight.value - startBankHeight / 2
-      } else {
-        frogPosition.value.x = pad.x
-        frogPosition.value.y = pad.y
-      }
+      frogPosition.value.x = Math.max(20, Math.min(gameWidth.value - 20, pad.x))
+      frogPosition.value.y = pad.y
     }
 
     for (let row = 0; row < rows; row++) {
@@ -216,6 +222,9 @@ function update() {
 
       // 检查是否到达对岸
       if (frogRow.value === rows - 1) {
+        isCompleted.value = true
+        // 到达对岸后游戏结束
+        endGame()
         emit('complete', {
           score: score.value,
           jumps: jumpCount.value,
@@ -344,7 +353,7 @@ onUnmounted(() => {
     </div>
 
     <div v-if="isGameOver" class="game-over">
-      <h2>{{ reachedGoal ? '恭喜到达对岸！' : '游戏结束！' }}</h2>
+      <h2>{{ isCompleted ? '恭喜到达对岸！' : '游戏结束！' }}</h2>
       <div class="result-stats">
         <div class="result-item highlight">
           <span class="label">最终得分</span>
@@ -374,6 +383,10 @@ onUnmounted(() => {
         <span>对岸</span>
         <span class="goal-hint" v-if="frogRow < rows - 1">跳到第{{ frogRow + 2 }}层荷叶即可到达</span>
         <span class="goal-hint success" v-else>已到达对岸！</span>
+      </div>
+
+      <div v-if="isCompleted" class="completion-banner">
+        🎉 恭喜！您已成功到达对岸！
       </div>
 
       <div class="rows-container">
@@ -742,5 +755,27 @@ onUnmounted(() => {
   font-weight: bold;
   color: rgba(255, 255, 255, 0.8);
   text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+.completion-banner {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: linear-gradient(135deg, #FFD700 0%, #FFA500 100%);
+  color: #333;
+  padding: 20px 40px;
+  border-radius: 16px;
+  font-size: 24px;
+  font-weight: bold;
+  z-index: 100;
+  box-shadow: 0 8px 32px rgba(255, 215, 0, 0.5);
+  animation: bounceIn 0.5s ease-out;
+}
+
+@keyframes bounceIn {
+  0% { transform: translate(-50%, -50%) scale(0); }
+  50% { transform: translate(-50%, -50%) scale(1.1); }
+  100% { transform: translate(-50%, -50%) scale(1); }
 }
 </style>
