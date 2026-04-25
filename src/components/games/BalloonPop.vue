@@ -23,9 +23,11 @@ const score = ref(0)
 const isPlaying = ref(false)
 const isGameOver = ref(false)
 const balloons = ref<Balloon[]>([])
+const explosions = ref<{ id: number; x: number; y: number; frame: number }[]>([])
 const currentInput = ref('')
 const failedWords = ref(0)
 let nextBalloonId = 0
+let explosionId = 0
 let gameLoop: number | null = null
 let spawnTimer: number | null = null
 
@@ -90,6 +92,7 @@ function startGame() {
   isPlaying.value = true
   isGameOver.value = false
   balloons.value = []
+  explosions.value = []
   currentInput.value = ''
   nextBalloonId = 0
 
@@ -111,6 +114,12 @@ function update() {
 
   balloons.value.forEach(balloon => {
     balloon.y -= balloon.speed
+  })
+
+  // 清理过期的爆炸效果
+  explosions.value = explosions.value.filter(exp => {
+    exp.frame++
+    return exp.frame < 15
   })
 
   balloons.value = balloons.value.filter(balloon => {
@@ -157,6 +166,13 @@ function handleKeyDown(e: KeyboardEvent) {
         balloon.typedIndex = typed.length
         if (balloon.word === typed) {
           score.value += balloon.word.length * 2
+          // 创建爆炸效果
+          explosions.value.push({
+            id: explosionId++,
+            x: balloon.x,
+            y: balloon.y + 30,
+            frame: 0
+          })
           balloons.value = balloons.value.filter(b => b.id !== balloon.id)
           currentInput.value = ''
           matched = true
@@ -250,17 +266,23 @@ onUnmounted(() => {
         class="balloon"
         :style="{ left: balloon.x + 'px', top: balloon.y + 'px' }"
       >
-        <div class="balloon-body">
-          <span class="balloon-string">|</span>
-        </div>
+        <div class="balloon-body"></div>
+        <span class="balloon-string">|</span>
         <div class="word-display">
           <span class="typed">{{ balloon.word.slice(0, balloon.typedIndex) }}</span>
           <span class="remaining">{{ balloon.word.slice(balloon.typedIndex) }}</span>
         </div>
       </div>
-      <div class="input-display">
-        <span class="input-text">{{ currentInput }}</span>
-        <span class="cursor">|</span>
+
+      <!-- 爆炸效果 -->
+      <div
+        v-for="(exp, index) in explosions"
+        :key="index"
+        class="explosion"
+        :class="{ exploding: true }"
+        :style="{ left: exp.x + 'px', top: exp.y + 'px' }"
+      >
+        <span>💥</span>
       </div>
     </div>
   </div>
@@ -387,6 +409,9 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   align-items: center;
+}
+
+.balloon {
   animation: sway 2s ease-in-out infinite;
 }
 
@@ -402,6 +427,7 @@ onUnmounted(() => {
   border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%;
   position: relative;
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+  opacity: 0.7;
 }
 
 .balloon-body::after {
@@ -420,6 +446,7 @@ onUnmounted(() => {
 .balloon-string {
   font-size: 24px;
   color: #666;
+  margin-top: 5px;
 }
 
 .word-display {
@@ -441,33 +468,29 @@ onUnmounted(() => {
   color: var(--text-color);
 }
 
-.input-display {
+.explosion {
   position: absolute;
-  bottom: 20px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: white;
-  padding: 12px 24px;
-  border-radius: 25px;
-  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
-  min-width: 200px;
-  text-align: center;
+  transform: translate(-50%, -50%);
+  font-size: 40px;
+  pointer-events: none;
 }
 
-.input-text {
-  font-family: monospace;
-  font-size: 24px;
-  font-weight: bold;
-  color: var(--primary-color);
+.explosion.exploding {
+  animation: explode 0.4s ease-out forwards;
 }
 
-.cursor {
-  font-size: 24px;
-  animation: blink 0.5s infinite;
-}
-
-@keyframes blink {
-  0%, 50% { opacity: 1; }
-  51%, 100% { opacity: 0; }
+@keyframes explode {
+  0% {
+    transform: translate(-50%, -50%) scale(0.5);
+    opacity: 1;
+  }
+  50% {
+    transform: translate(-50%, -50%) scale(1.5);
+    opacity: 0.8;
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(2);
+    opacity: 0;
+  }
 }
 </style>
