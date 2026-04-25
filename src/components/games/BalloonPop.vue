@@ -29,7 +29,9 @@ const failedWords = ref(0)
 let nextBalloonId = 0
 let explosionId = 0
 let gameLoop: number | null = null
-let spawnTimer: number | null = null
+let gameStartTime = 0
+let gameTime = 0
+let lastSpawnTime = 0
 
 const wpm = computed(() => {
   const totalChars = balloons.value.reduce((sum, b) => sum + b.word.length, 0)
@@ -75,12 +77,20 @@ function spawnBalloon() {
 
   const word = getRandomWord()
   const x = 60 + Math.random() * (gameWidth.value - 120)
+
+  // 根据游戏时间增加基础速度（每30秒速度增加约30%）
+  const speedMultiplier = 1 + (gameTime / 30000) * 0.3
+  const baseSpeed = (0.5 + Math.random() * 0.3) * speedMultiplier
+  // 限制最大速度，防止过快
+  const maxSpeed = 2.0
+  const speed = Math.min(baseSpeed, maxSpeed)
+
   balloons.value.push({
     id: nextBalloonId++,
     word,
     x,
     y: 500,
-    speed: 0.5 + Math.random() * 0.3,
+    speed,
     typedIndex: 0
   })
 }
@@ -95,6 +105,9 @@ function startGame() {
   explosions.value = []
   currentInput.value = ''
   nextBalloonId = 0
+  gameStartTime = 0
+  gameTime = 0
+  lastSpawnTime = 0
 
   if (gameAreaRef.value) {
     gameWidth.value = gameAreaRef.value.offsetWidth
@@ -102,15 +115,27 @@ function startGame() {
 
   gameLoop = requestAnimationFrame(update)
   spawnBalloon()
-  spawnTimer = window.setInterval(() => {
-    if (isPlaying.value && !isGameOver.value) {
-      spawnBalloon()
-    }
-  }, 3000)
 }
 
-function update() {
+function update(timestamp: number) {
   if (!isPlaying.value || isGameOver.value) return
+
+  // 初始化游戏开始时间
+  if (!gameStartTime) {
+    gameStartTime = timestamp
+    lastSpawnTime = timestamp
+  }
+
+  gameTime = timestamp - gameStartTime
+
+  // 动态调整生成间隔（最快 1 秒）
+  const currentSpawnInterval = Math.max(1000, 3000 - gameTime * 0.02)
+
+  // 检查是否需要生成新气球
+  if (timestamp - lastSpawnTime > currentSpawnInterval) {
+    spawnBalloon()
+    lastSpawnTime = timestamp
+  }
 
   balloons.value.forEach(balloon => {
     balloon.y -= balloon.speed
@@ -195,7 +220,6 @@ function endGame() {
   isPlaying.value = false
   isGameOver.value = true
   if (gameLoop) cancelAnimationFrame(gameLoop)
-  if (spawnTimer) clearInterval(spawnTimer)
 }
 
 function retry() {
@@ -209,7 +233,6 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener('keydown', handleKeyDown)
   if (gameLoop) cancelAnimationFrame(gameLoop)
-  if (spawnTimer) clearInterval(spawnTimer)
 })
 </script>
 
