@@ -17,6 +17,32 @@ interface Alien {
   explosionFrame: number
 }
 
+interface Ufo {
+  id: number
+  word: string
+  x: number
+  y: number
+  speed: number
+  typedIndex: number
+  alive: boolean
+  explosionFrame: number
+  direction: number
+  minX: number
+  maxX: number
+}
+
+interface Laser {
+  id: number
+  x: number
+  y: number
+  targetId: number
+  targetType: 'alien' | 'ufo'
+  startX: number
+  startY: number
+  directionX: number
+  directionY: number
+}
+
 const gameAreaRef = ref<HTMLElement | null>(null)
 const gameWidth = ref(600)
 const gameHeight = ref(400)
@@ -26,25 +52,58 @@ const score = ref(0)
 const isPlaying = ref(false)
 const isGameOver = ref(false)
 const aliens = ref<Alien[]>([])
+const ufos = ref<Ufo[]>([])
+const lasers = ref<Laser[]>([])
 const currentInput = ref('')
 const destroyedCount = ref(0)
 let nextAlienId = 0
+let nextUfoId = 0
+let nextLaserId = 0
 let gameLoop: number | null = null
 let spawnTimer: number | null = null
+let ufoSpawnTimer: number | null = null
 
 const wpm = computed(() => {
   if (destroyedCount.value === 0) return 0
   return Math.round(destroyedCount.value * 12)
 })
 
-const accuracy = computed(() => {
-  return 100
-})
-
 const words = [
   'zap', 'boom', 'bang', 'pew', 'pow', 'destroy', 'invade', 'attack', 'alien', 'ufo',
   'space', 'laser', 'blast', 'comet', 'orbit', 'galaxy', 'rocket', 'planet', 'star', 'moon'
 ]
+
+const ufoWords = [
+  'mothership', 'teleport', 'wormhole', 'asteroid', 'nebula', 'voyager', 'gravity',
+  'supernova', 'blackhole', 'quantum', 'photon', 'plasma', 'warpdrive', 'hyperspace'
+]
+
+function spawnUfo() {
+  if (!isPlaying.value || isGameOver.value) return
+
+  const word = ufoWords[Math.floor(Math.random() * ufoWords.length)]
+  // UFO 从顶部中间区域出现
+  const minX = gameWidth.value * 0.1
+  const maxX = gameWidth.value * 0.9
+  const x = minX + Math.random() * (maxX - minX)
+
+  // UFO 更大的移动范围
+  const moveRange = 100 + Math.random() * 80
+
+  ufos.value.push({
+    id: nextUfoId++,
+    word,
+    x,
+    y: -60,
+    speed: 0.4 + Math.random() * 0.3, // 比普通外星人快
+    typedIndex: 0,
+    alive: true,
+    explosionFrame: 0,
+    direction: Math.random() > 0.5 ? 1 : -1,
+    minX: Math.max(minX, x - moveRange),
+    maxX: Math.min(maxX, x + moveRange)
+  })
+}
 
 function spawnAlien() {
   if (!isPlaying.value || isGameOver.value) return
@@ -74,8 +133,12 @@ function startGame() {
   isPlaying.value = true
   isGameOver.value = false
   aliens.value = []
+  ufos.value = []
+  lasers.value = []
   currentInput.value = ''
   nextAlienId = 0
+  nextUfoId = 0
+  nextLaserId = 0
 
   if (gameAreaRef.value) {
     gameWidth.value = gameAreaRef.value.offsetWidth
@@ -89,23 +152,111 @@ function startGame() {
       spawnAlien()
     }
   }, 2000)
+
+  // UFO 较少出现
+  ufoSpawnTimer = window.setInterval(() => {
+    if (isPlaying.value && !isGameOver.value) {
+      spawnUfo()
+    }
+  }, 8000)
 }
 
 function update() {
   if (!isPlaying.value || isGameOver.value) return
 
+  // 更新外星人
   aliens.value.forEach(alien => {
     if (alien.alive) {
       alien.y += alien.speed
     }
   })
 
+  // 更新 UFO（横向移动）
+  ufos.value.forEach(ufo => {
+    if (ufo.alive) {
+      ufo.y += ufo.speed
+      ufo.x += ufo.direction * 0.8 // 横向移动
+
+      // 碰到边界反弹
+      if (ufo.x <= ufo.minX || ufo.x >= ufo.maxX) {
+        ufo.direction *= -1
+        ufo.x = Math.max(ufo.minX, Math.min(ufo.maxX, ufo.x))
+      }
+    }
+  })
+
+  // 更新激光（斜向移动）
+  const laserSpeed = 12
+  lasers.value.forEach(laser => {
+    laser.x += laser.directionX * laserSpeed
+    laser.y += laser.directionY * laserSpeed
+  })
+
+  // 激光碰撞检测
+  lasers.value = lasers.value.filter(laser => {
+    let hit = false
+
+    if (laser.targetType === 'alien') {
+      const target = aliens.value.find(a => a.id === laser.targetId)
+      if (target && target.alive) {
+        const dx = laser.x - target.x
+        const dy = laser.y - target.y
+        const dist = Math.sqrt(dx * dx + dy * dy)
+        if (dist < 40) {
+          target.alive = false
+          score.value += target.word.length * 10
+          destroyedCount.value++
+          hit = true
+        }
+      } else {
+        hit = true
+      }
+    } else if (laser.targetType === 'ufo') {
+      const target = ufos.value.find(u => u.id === laser.targetId)
+      if (target && target.alive) {
+        const dx = laser.x - target.x
+        const dy = laser.y - target.y
+        const dist = Math.sqrt(dx * dx + dy * dy)
+        if (dist < 50) {
+          target.alive = false
+          score.value += target.word.length * 20
+          destroyedCount.value++
+          hit = true
+        }
+      } else {
+        hit = true
+      }
+    }
+
+    // 激光飞出屏幕
+    return !hit && laser.y > -20 && laser.y < gameHeight.value + 20 &&
+           laser.x > -20 && laser.x < gameWidth.value + 20
+  })
+
+  // 过滤已死亡的外星人
   aliens.value = aliens.value.filter(alien => {
     if (!alien.alive) {
       alien.explosionFrame++
       return alien.explosionFrame < 10
     }
     if (alien.y > gameHeight.value - 60) {
+      lives.value--
+      if (lives.value <= 0) {
+        endGame()
+        return false
+      }
+      return false
+    }
+    return true
+  })
+
+  // 过滤已死亡的 UFO
+  ufos.value = ufos.value.filter(ufo => {
+    if (!ufo.alive) {
+      ufo.explosionFrame++
+      return ufo.explosionFrame < 15 // UFO 爆炸时间更长
+    }
+    if (ufo.y > gameHeight.value - 60) {
       lives.value--
       if (lives.value <= 0) {
         endGame()
@@ -130,6 +281,11 @@ function handleKeyDown(e: KeyboardEvent) {
         a.typedIndex = currentInput.value.length
       }
     })
+    ufos.value.forEach(u => {
+      if (u.alive && u.word.startsWith(currentInput.value)) {
+        u.typedIndex = currentInput.value.length
+      }
+    })
     return
   }
 
@@ -138,15 +294,32 @@ function handleKeyDown(e: KeyboardEvent) {
     const char = e.key.toLowerCase()
     currentInput.value += char
 
+    // 检查外星人匹配
     let matched = false
     aliens.value.forEach(alien => {
       if (alien.alive && alien.word.startsWith(currentInput.value)) {
         alien.typedIndex = currentInput.value.length
         if (alien.word === currentInput.value) {
-          alien.alive = false
-          destroyedCount.value++
-          score.value += alien.word.length * 10
+          // 计算激光方向和起始位置（从底部中间斜向目标）
+          const cannonX = gameWidth.value / 2
+          const cannonY = gameHeight.value - 45
+          const dx = alien.x - cannonX
+          const dy = alien.y - cannonY
+          const dist = Math.sqrt(dx * dx + dy * dy)
+
+          lasers.value.push({
+            id: nextLaserId++,
+            x: cannonX,
+            y: cannonY,
+            startX: cannonX,
+            startY: cannonY,
+            targetId: alien.id,
+            targetType: 'alien',
+            directionX: dx / dist,
+            directionY: dy / dist
+          })
           currentInput.value = ''
+          matched = true
 
           aliens.value.forEach(a => {
             if (a.alive) a.typedIndex = 0
@@ -155,6 +328,42 @@ function handleKeyDown(e: KeyboardEvent) {
         matched = true
       }
     })
+
+    // 检查 UFO 匹配
+    if (!matched) {
+      ufos.value.forEach(ufo => {
+        if (ufo.alive && ufo.word.startsWith(currentInput.value)) {
+          ufo.typedIndex = currentInput.value.length
+          if (ufo.word === currentInput.value) {
+            // 计算激光方向和起始位置（从底部中间斜向目标）
+            const cannonX = gameWidth.value / 2
+            const cannonY = gameHeight.value - 45
+            const dx = ufo.x - cannonX
+            const dy = ufo.y - cannonY
+            const dist = Math.sqrt(dx * dx + dy * dy)
+
+            lasers.value.push({
+              id: nextLaserId++,
+              x: cannonX,
+              y: cannonY,
+              startX: cannonX,
+              startY: cannonY,
+              targetId: ufo.id,
+              targetType: 'ufo',
+              directionX: dx / dist,
+              directionY: dy / dist
+            })
+            currentInput.value = ''
+            matched = true
+
+            ufos.value.forEach(u => {
+              if (u.alive) u.typedIndex = 0
+            })
+          }
+          matched = true
+        }
+      })
+    }
 
     if (!matched) {
       currentInput.value = currentInput.value.slice(0, -1)
@@ -167,6 +376,7 @@ function endGame() {
   isGameOver.value = true
   if (gameLoop) cancelAnimationFrame(gameLoop)
   if (spawnTimer) clearInterval(spawnTimer)
+  if (ufoSpawnTimer) clearInterval(ufoSpawnTimer)
 }
 
 function retry() {
@@ -181,6 +391,7 @@ onUnmounted(() => {
   window.removeEventListener('keydown', handleKeyDown)
   if (gameLoop) cancelAnimationFrame(gameLoop)
   if (spawnTimer) clearInterval(spawnTimer)
+  if (ufoSpawnTimer) clearInterval(ufoSpawnTimer)
 })
 </script>
 
@@ -243,6 +454,21 @@ onUnmounted(() => {
         }"></div>
       </div>
 
+      <!-- 激光效果 -->
+      <div
+        v-for="laser in lasers"
+        :key="laser.id"
+        class="laser"
+        :style="{
+          left: laser.x + 'px',
+          top: laser.y + 'px',
+          transform: `translate(-50%, -50%) rotate(${(Math.atan2(laser.directionY, laser.directionX) * 180 / Math.PI + 360) % 360}deg)`
+        }"
+      >
+        <div class="laser-beam"></div>
+      </div>
+
+      <!-- 外星人 -->
       <div
         v-for="alien in aliens"
         :key="alien.id"
@@ -266,11 +492,38 @@ onUnmounted(() => {
         </template>
       </div>
 
+      <!-- UFO 飞碟 -->
+      <div
+        v-for="ufo in ufos"
+        :key="ufo.id"
+        class="ufo"
+        :class="{ exploding: !ufo.alive }"
+        :style="{ left: ufo.x + 'px', top: ufo.y + 'px' }"
+      >
+        <template v-if="ufo.alive">
+          <div class="ufo-body">
+            <div class="ufo-dome"></div>
+            <div class="ufo-lights">
+              <span class="ufo-light" v-for="i in 5" :key="i"></span>
+            </div>
+          </div>
+          <div class="ufo-beam"></div>
+          <div class="word-display ufo-word">
+            <span class="typed">{{ ufo.word.slice(0, ufo.typedIndex) }}</span>
+            <span class="remaining">{{ ufo.word.slice(ufo.typedIndex) }}</span>
+          </div>
+        </template>
+        <template v-else>
+          <div class="explosion ufo-explosion">☄️💥</div>
+        </template>
+      </div>
+
       <div class="defense-line"></div>
 
-      <div class="input-display">
-        <span class="input-text">{{ currentInput }}</span>
-        <span class="cursor">|</span>
+      <!-- 激光炮 -->
+      <div class="laser-cannon">
+        <div class="cannon-base"></div>
+        <div class="cannon-barrel"></div>
       </div>
     </div>
   </div>
@@ -476,6 +729,183 @@ onUnmounted(() => {
   font-size: 40px;
 }
 
+.laser {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  z-index: 10;
+}
+
+.laser-beam {
+  width: 30px;
+  height: 8px;
+  background: linear-gradient(to right, transparent, #ff6b6b, #ffd93d, #fff);
+  border-radius: 4px;
+  box-shadow: 0 0 10px #ff6b6b, 0 0 20px #ffd93d, 0 0 30px #ff6b6b;
+  transform-origin: left center;
+  position: relative;
+}
+
+.laser-beam::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 8px;
+  height: 8px;
+  background: #fff;
+  border-radius: 50%;
+  box-shadow: 0 0 10px #fff, 0 0 20px #ffd93d;
+}
+
+.ufo {
+  position: absolute;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.ufo-body {
+  width: 100px;
+  height: 40px;
+  background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 50%, #1d4ed8 100%);
+  border-radius: 50%;
+  position: relative;
+  box-shadow: 0 0 20px rgba(59, 130, 246, 0.8);
+  animation: ufo-hover 0.5s ease-in-out infinite;
+}
+
+@keyframes ufo-hover {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+
+.ufo-dome {
+  position: absolute;
+  top: -15px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 40px;
+  height: 25px;
+  background: linear-gradient(135deg, #93c5fd 0%, #60a5fa 100%);
+  border-radius: 50% 50% 0 0;
+  box-shadow: 0 0 15px rgba(147, 197, 253, 0.8);
+}
+
+.ufo-lights {
+  position: absolute;
+  bottom: -5px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 10px;
+}
+
+.ufo-light {
+  width: 8px;
+  height: 8px;
+  background: #fbbf24;
+  border-radius: 50%;
+  animation: ufo-light-blink 0.3s infinite;
+  box-shadow: 0 0 10px #fbbf24;
+}
+
+.ufo-light:nth-child(2) { animation-delay: 0.1s; }
+.ufo-light:nth-child(3) { animation-delay: 0.2s; }
+.ufo-light:nth-child(4) { animation-delay: 0.15s; }
+.ufo-light:nth-child(5) { animation-delay: 0.25s; }
+
+@keyframes ufo-light-blink {
+  0%, 100% { opacity: 1; background: #fbbf24; }
+  50% { opacity: 0.5; background: #f59e0b; }
+}
+
+.ufo-beam {
+  width: 0;
+  height: 0;
+  border-left: 30px solid transparent;
+  border-right: 30px solid transparent;
+  border-top: 80px solid rgba(147, 197, 253, 0.2);
+  margin-top: -5px;
+}
+
+.word-display.ufo-word {
+  border-color: #3b82f6;
+  box-shadow: 0 0 15px rgba(59, 130, 246, 0.5);
+}
+
+.ufo.exploding {
+  animation: ufo-explode 0.5s ease-out;
+}
+
+@keyframes ufo-explode {
+  0% { transform: translateX(-50%) scale(1); opacity: 1; }
+  50% { transform: translateX(-50%) scale(1.8); opacity: 0.6; }
+  100% { transform: translateX(-50%) scale(2.5); opacity: 0; }
+}
+
+.ufo-explosion {
+  font-size: 60px;
+  animation: ufo-explosion-flash 0.5s ease-out;
+}
+
+@keyframes ufo-explosion-flash {
+  0% { transform: scale(0.5); opacity: 1; }
+  30% { transform: scale(1.5); opacity: 1; }
+  100% { transform: scale(2); opacity: 0; }
+}
+
+.laser-cannon {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.cannon-base {
+  width: 60px;
+  height: 30px;
+  background: linear-gradient(135deg, #4b5563 0%, #1f2937 100%);
+  border-radius: 8px 8px 4px 4px;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
+}
+
+.cannon-barrel {
+  width: 16px;
+  height: 35px;
+  background: linear-gradient(180deg, #6b7280 0%, #374151 50%, #6b7280 100%);
+  border-radius: 4px;
+  margin-top: -32px;
+  transition: all 0.1s;
+  transform-origin: center bottom;
+}
+
+.cannon-barrel.firing {
+  background: linear-gradient(90deg, #ef4444 0%, #f97316 50%, #ef4444 100%);
+  box-shadow: 0 0 20px #ef4444, 0 0 40px #f97316;
+}
+
+.cannon-glow {
+  position: absolute;
+  top: -10px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 20px;
+  height: 20px;
+  background: radial-gradient(circle, #fbbf24 0%, transparent 70%);
+  animation: cannon-glow-pulse 0.2s infinite;
+}
+
+@keyframes cannon-glow-pulse {
+  0%, 100% { opacity: 0.8; transform: translateX(-50%) scale(1); }
+  50% { opacity: 1; transform: translateX(-50%) scale(1.2); }
+}
+
 .defense-line {
   position: absolute;
   bottom: 80px;
@@ -484,37 +914,5 @@ onUnmounted(() => {
   height: 4px;
   background: linear-gradient(90deg, transparent, var(--success-color), transparent);
   box-shadow: 0 0 20px var(--success-color);
-}
-
-.input-display {
-  position: absolute;
-  bottom: 20px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: rgba(0, 0, 0, 0.8);
-  border: 2px solid var(--primary-color);
-  padding: 12px 24px;
-  border-radius: 25px;
-  box-shadow: 0 0 20px rgba(147, 51, 234, 0.3);
-  min-width: 200px;
-  text-align: center;
-}
-
-.input-text {
-  font-family: 'Courier New', monospace;
-  font-size: 24px;
-  font-weight: bold;
-  color: #9333ea;
-}
-
-.cursor {
-  font-size: 24px;
-  color: #9333ea;
-  animation: blink 0.5s infinite;
-}
-
-@keyframes blink {
-  0%, 50% { opacity: 1; }
-  51%, 100% { opacity: 0; }
 }
 </style>
