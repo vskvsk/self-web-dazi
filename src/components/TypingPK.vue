@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useTyping } from '../composables/useTyping'
 import { useStorage } from '../composables/useStorage'
 import { getRandomArticle } from '../data/articles'
@@ -22,6 +22,10 @@ const isActive = ref(false)
 const isComposing = ref(false)
 const timeLeft = ref(60)
 const testInput = ref<HTMLInputElement | null>(null)
+const textContentRef = ref<HTMLElement | null>(null)
+const opponentCanvas = ref<HTMLCanvasElement | null>(null)
+let ctx: CanvasRenderingContext2D | null = null
+let resizeObserver: ResizeObserver | null = null
 let timer: number | null = null
 
 // 预估对手的完成时间
@@ -98,21 +102,95 @@ const displayText = computed(() => {
   })
 })
 
-// 对手进度是否到达该字符之下
-const targetCharStyle = computed(() => {
-  return state.value.text.split('').map((_, index) => {
-    if (index < targetCurrentIndex.value) {
-      return { isUnder: true }
-    }
-    return { isUnder: false }
-  })
-})
+// Canvas 绘制对手进度线（按文字行排列）
+function drawOpponentProgress() {
+  if (!ctx || !opponentCanvas.value || !textContentRef.value) return
+  const canvas = opponentCanvas.value
+  const container = textContentRef.value
+  const dpr = window.devicePixelRatio || 1
 
-const formattedTime = computed(() => {
-  const minutes = Math.floor(timeLeft.value / 60)
-  const seconds = timeLeft.value % 60
-  return `${minutes}:${seconds.toString().padStart(2, '0')}`
-})
+  canvas.width = container.offsetWidth * dpr
+  canvas.height = container.offsetHeight * dpr
+  ctx.clearRect(0, 0, canvas.width, canvas.height)
+
+  if (targetProgress.value <= 0) return
+
+  const fontSize = parseFloat(getComputedStyle(container).fontSize) || 24
+  const lineHeight = parseFloat(getComputedStyle(container).lineHeight) || (fontSize * 1.8)
+  const rawText = state.value.text
+
+  ctx.font = getComputedStyle(container).font || `${fontSize}px monospace`
+  ctx.fillStyle = '#c8c8c8'
+  ctx.textBaseline = 'top'
+
+  const lines = rawText.split('\n')
+  let charOffset = 0
+  let currentY = 0
+  const lineH = lineHeight
+
+  for (let i = 0; i < lines.length; i++) {
+    const lineText = lines[i]
+    if (lineText.length === 0) {
+      currentY += lineH
+      continue
+    }
+
+    const lineWidth = ctx.measureText(lineText).width
+    // 包括换行符 \n，它在 rawText 中占一个位置
+    const lineStartChar = charOffset
+    const lineEndChar = charOffset + lineText.length // exclusive，指向 \n 或文本末尾
+
+    if (targetProgress.value >= 100) {
+      drawRoundedLine(ctx, 0, currentY + lineH - 4 * dpr, lineWidth, 4 * dpr, 2 * dpr)
+    } else if (targetProgress.value <= 0) {
+      // noop
+    } else {
+      // 进度指向的字符索引（包含 \n）
+      const progressCharIndex = Math.floor((targetProgress.value / 100) * rawText.length)
+      if (progressCharIndex <= lineStartChar) {
+        // not reached
+      } else if (progressCharIndex >= lineEndChar) {
+        // 行已走完，整行满
+        drawRoundedLine(ctx, 0, currentY + lineH - 4 * dpr, lineWidth, 4 * dpr, 2 * dpr)
+      } else {
+        // 进度在行中间，\n 不渲染字符，用它前面一个字符来估算宽度
+        const localIndex = progressCharIndex - lineStartChar
+        const progressText = lineText.slice(0, localIndex)
+        const progressWidth = ctx.measureText(progressText).width
+        if (progressWidth > 0) {
+          drawRoundedLine(ctx, 0, currentY + lineH - 4 * dpr, progressWidth, 4 * dpr, 2 * dpr)
+        }
+      }
+    }
+
+    currentY += lineH
+    charOffset = lineEndChar + 1 // +1 跳过 \n
+  }
+}
+
+function drawRoundedLine(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  r: number
+) {
+  if (w <= 0 || h <= 0) return
+  const radius = Math.min(r, w / 2, h / 2)
+  ctx.beginPath()
+  ctx.moveTo(x + radius, y)
+  ctx.lineTo(x + w - radius, y)
+  ctx.arcTo(x + w, y, x + w, y + radius, radius)
+  ctx.lineTo(x + w, y + h - radius)
+  ctx.arcTo(x + w, y + h, x + w - radius, y + h, radius)
+  ctx.lineTo(x + radius, y + h)
+  ctx.arcTo(x, y + h, x, y + h - radius, radius)
+  ctx.lineTo(x, y + radius)
+  ctx.arcTo(x, y, x + radius, y, radius)
+  ctx.closePath()
+  ctx.fill()
+}
 
 const formattedElapsed = computed(() => {
   const minutes = Math.floor(elapsedTime.value / 60)
@@ -127,12 +205,35 @@ onMounted(() => {
   initTest()
   nextTick(() => {
     testInput.value?.focus()
+    initOpponentCanvas()
+    watchOpponentProgress()
   })
 })
+
+function initOpponentCanvas() {
+  if (!opponentCanvas.value) return
+  ctx = opponentCanvas.value.getContext('2d')
+  resizeObserver = new ResizeObserver(() => {
+    drawOpponentProgress()
+  })
+  if (textContentRef.value) {
+    resizeObserver.observe(textContentRef.value)
+  }
+  drawOpponentProgress()
+}
+
+function watchOpponentProgress() {
+  watch(targetProgress, () => {
+    drawOpponentProgress()
+  })
+}
 
 onUnmounted(() => {
   if (timer) {
     clearInterval(timer)
+  }
+  if (resizeObserver) {
+    resizeObserver.disconnect()
   }
 })
 
@@ -362,13 +463,13 @@ function focusInput() {
 
       <!-- 打字区域 -->
       <div class="typing-area" @click="focusInput">
-        <div class="text-content">
+        <div class="text-content" ref="textContentRef">
           <span
             v-for="(item, index) in displayText"
             :key="index"
             :class="['char', item.className]"
-            :data-opponent-under="targetCharStyle[index].isUnder"
           >{{ item.char === ' ' ? '\u00A0' : item.char }}</span>
+          <canvas ref="opponentCanvas" class="opponent-canvas"></canvas>
         </div>
 
         <p class="start-hint" v-if="!isActive && state.currentIndex === 0">
@@ -671,6 +772,7 @@ function focusInput() {
   width: 100%;
   word-wrap: break-word;
   white-space: pre-wrap;
+  position: relative;
 }
 
 .start-hint {
@@ -682,7 +784,6 @@ function focusInput() {
 
 .char {
   display: inline;
-  position: relative;
 }
 
 .char.correct {
@@ -700,16 +801,12 @@ function focusInput() {
   border-radius: 2px;
 }
 
-/* 对手进度线：位于字符下方的浅灰色下划线，跟随字符跨行 */
-.char[data-opponent-under="true"]::after {
-  content: '';
+.opponent-canvas {
   position: absolute;
-  bottom: -2px;
+  top: 0;
   left: 0;
-  right: 0;
-  height: 3px;
-  background: #c8c8c8;
-  border-radius: 2px;
+  width: 100%;
+  height: 100%;
   pointer-events: none;
 }
 
